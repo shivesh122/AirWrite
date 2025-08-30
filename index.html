@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Finger Writing — True Camera View</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    :root{
+      --glass: rgba(20,20,20,0.5);
+      --glass-border: rgba(255,255,255,0.15);
+      --accent:#2196f3;
+      --accent-hover:#1976d2;
+      --text:#f5f5f5;
+      --muted:#bdbdbd;
+    }
+    html,body{
+      margin:0;height:100%;background:#000;overflow:hidden;font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;color:var(--text);
+    }
+    video{display:none;}
+    canvas{position:absolute;inset:0;width:100%;height:100%;}
+    /* Toolbar */
+    .toolbar{
+      position:fixed;left:50%;transform:translateX(-50%);
+      bottom:20px;display:flex;gap:10px;align-items:center;
+      padding:10px 12px;border-radius:18px;backdrop-filter: blur(10px);
+      background:var(--glass);border:1px solid var(--glass-border);z-index:20;
+      box-shadow:0 8px 24px rgba(0,0,0,0.35);
+      user-select:none;
+    }
+    .btn,.seg{
+      display:inline-flex;align-items:center;gap:8px;
+      padding:8px 12px;border-radius:12px;border:1px solid var(--glass-border);
+      background:rgba(255,255,255,0.06);color:var(--text);cursor:pointer;
+      font-size:14px;line-height:1;transition:transform .04s ease, background .2s ease;
+    }
+    .btn:hover,.seg:hover{background:rgba(255,255,255,0.12)}
+    .btn:active,.seg:active{transform:translateY(1px)}
+    .btn[aria-pressed="true"], .seg[aria-pressed="true"]{outline:2px solid var(--accent)}
+    .pill{
+      padding:8px;border-radius:999px;background:rgba(255,255,255,0.06);
+      border:1px solid var(--glass-border);display:flex;gap:6px;align-items:center;
+    }
+    .sep{width:1px;height:28px;background:var(--glass-border);margin:0 4px}
+    .color{
+      width:28px;height:28px;border-radius:999px;border:1px solid var(--glass-border);
+      overflow:hidden;cursor:pointer;display:inline-block;
+    }
+    input[type="color"]{appearance:none;border:none;background:none;padding:0;width:100%;height:100%}
+    input[type="range"]{width:120px}
+    .hint{
+      position:fixed;top:14px;left:50%;transform:translateX(-50%);
+      background:var(--glass);border:1px solid var(--glass-border);backdrop-filter:blur(10px);
+      padding:10px 14px;border-radius:12px;font-size:13px;color:var(--muted);z-index:20
+    }
+    .cursor-dot{
+      position:absolute;z-index:15;pointer-events:none;border-radius:50%;
+      border:2px solid rgba(255,255,255,0.85);box-shadow:0 0 10px rgba(0,0,0,0.6);
+      mix-blend-mode:screen;transform:translate(-50%,-50%);
+      width:16px;height:16px;
+    }
+    .overlay{
+      position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+      background:rgba(0,0,0,0.6);backdrop-filter:blur(2px);z-index:30;
+    }
+    .card{
+      max-width:520px;background:rgba(20,20,20,0.95);border:1px solid var(--glass-border);
+      padding:20px;border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,0.5)
+    }
+    .card h2{margin:0 0 10px 0;font-size:20px}
+    .card ul{margin:8px 0 0 18px;color:#d6d6d6}
+    .close{
+      margin-top:14px;background:var(--accent);border:none;color:white;
+      padding:10px 14px;border-radius:10px;cursor:pointer;font-size:14px
+    }
+    .close:hover{background:var(--accent-hover)}
+    .seg-group{display:flex;border-radius:12px;overflow:hidden;border:1px solid var(--glass-border)}
+    .seg{border-radius:0;border-left:none}
+    .seg:first-child{border-left:1px solid var(--glass-border)}
+  </style>
+</head>
+<body>
+  <video id="video" autoplay playsinline></video>
+  <canvas id="output"></canvas>
+  <canvas id="drawCanvas" style="display:none;"></canvas>
+
+  <div class="toolbar" role="toolbar" aria-label="Drawing toolbar">
+    <div class="pill" title="Pen color">
+      <span style="font-size:13px;color:var(--muted)">Color</span>
+      <div class="color"><input id="color" type="color" value="#1e90ff" aria-label="Pen color"/></div>
+    </div>
+
+    <div class="pill" title="Pen thickness">
+      <span style="font-size:13px;color:var(--muted)">Size</span>
+      <input id="size" type="range" min="2" max="24" value="4" />
+      <span id="sizeLbl" style="font-size:13px;color:var(--muted)">4</span>
+    </div>
+
+    <button id="eraserBtn" class="btn" aria-pressed="false" title="Toggle eraser (E)">
+      🩹 Eraser
+    </button>
+
+    <div class="sep"></div>
+
+    <button id="undoBtn" class="btn" title="Undo (Ctrl+Z)">↶ Undo</button>
+    <button id="redoBtn" class="btn" title="Redo (Ctrl+Y)">↷ Redo</button>
+
+    <div class="sep"></div>
+
+    <div class="seg-group" role="group" aria-label="Background">
+      <button class="seg" id="bgNone" aria-pressed="true" title="Transparent background">Transparent</button>
+      <button class="seg" id="bgLined" aria-pressed="false" title="Lined paper">Lined</button>
+      <button class="seg" id="bgGrid" aria-pressed="false" title="Grid">Grid</button>
+    </div>
+
+    <div class="sep"></div>
+
+    <button id="mirrorBtn" class="btn" aria-pressed="false" title="Toggle mirroring">🔄 Mirror: OFF</button>
+
+    <div class="sep"></div>
+
+    <button id="clearBtn" class="btn" title="Clear (C)">🧹 Clear</button>
+    <button id="saveBtn" class="btn" title="Save PNG (S)">💾 Save</button>
+  </div>
+
+  <div class="hint">Index finger writes · Thumb erases · Thumb + pinky clears · Index + middle = pause · Toggle mirroring below</div>
+
+  <div id="cursor" class="cursor-dot" style="display:none;"></div>
+
+  <div id="overlay" class="overlay">
+    <div class="card">
+      <h2>How to use</h2>
+      <ul>
+        <li><b>Write</b>: raise your index finger — that’s your pen.</li>
+        <li><b>Pause</b>: bring index + middle together.</li>
+        <li><b>Erase</b>: show your thumb, or toggle the Eraser.</li>
+        <li><b>Clear</b>: spread thumb & pinky.</li>
+        <li><b>Save</b>: downloads a transparent PNG of your strokes.</li>
+        <li><b>Mirror</b>: flips camera + writing to mirrored view.</li>
+      </ul>
+      <button id="closeOverlay" class="close">Got it</button>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+
+  <script>
+    // Elements
+    const video = document.getElementById('video');
+    const outCanvas = document.getElementById('output');
+    const outCtx = outCanvas.getContext('2d');
+    const drawCanvas = document.getElementById('drawCanvas');
+    const drawCtx = drawCanvas.getContext('2d');
+
+    const colorEl = document.getElementById('color');
+    const sizeEl  = document.getElementById('size');
+    const sizeLbl = document.getElementById('sizeLbl');
+    const eraserBtn = document.getElementById('eraserBtn');
+    const undoBtn = document.getElementById('undoBtn');
+    const redoBtn = document.getElementById('redoBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    const saveBtn = document.getElementById('saveBtn');
+    const cursor = document.getElementById('cursor');
+    const mirrorBtn = document.getElementById('mirrorBtn');
+
+    const overlay = document.getElementById('overlay');
+    const closeOverlay = document.getElementById('closeOverlay');
+
+    const bgNone = document.getElementById('bgNone');
+    const bgLined = document.getElementById('bgLined');
+    const bgGrid = document.getElementById('bgGrid');
+
+    // State
+    let penColor = colorEl.value;
+    let penSize = parseInt(sizeEl.value, 10);
+    let uiEraser = false;
+    let mirror = false; // start in true view
+
+    let lastX=null,lastY=null, smoothX=null,smoothY=null;
+    let penDown=false, eraseMode=false;
+    let fingertipX=null, fingertipY=null;
+
+    const history = [];
+    const redoStack = [];
+
+    function resizeCanvas(){
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      outCanvas.width = w; outCanvas.height = h;
+      drawCanvas.width = w; drawCanvas.height = h;
+      redrawAll();
+    }
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    function distance(a,b){ return Math.hypot(a.x-b.x, a.y-b.y); }
+    function lerp(a,b,t){ return a+(b-a)*t; }
+
+    function drawBackground(){
+      if (bgMode==='lined'){
+        const gap = 36;
+        outCtx.save();
+        outCtx.strokeStyle = 'rgba(173,216,230,0.25)';
+        outCtx.lineWidth = 1;
+        for (let y=0;y<outCanvas.height;y+=gap){
+          outCtx.beginPath();
+          outCtx.moveTo(0,y);
+          outCtx.lineTo(outCanvas.width,y);
+          outCtx.stroke();
+        }
+        outCtx.restore();
+      } else if (bgMode==='grid'){
+        const gap = 36;
+        outCtx.save();
+        outCtx.strokeStyle = 'rgba(173,216,230,0.18)';
+        outCtx.lineWidth = 1;
+        for (let y=0;y<outCanvas.height;y+=gap){
+          outCtx.beginPath(); outCtx.moveTo(0,y); outCtx.lineTo(outCanvas.width,y); outCtx.stroke();
+        }
+        for (let x=0;x<outCanvas.width;x+=gap){
+          outCtx.beginPath(); outCtx.moveTo(x,0); outCtx.lineTo(x,outCanvas.height); outCtx.stroke();
+        }
+        outCtx.restore();
+      }
+    }
+
+    function renderStroke(ctx, stroke){
+      const pts = stroke.points;
+      if (pts.length===0) return;
+
+      if (stroke.type==='erase'){
+        ctx.save();
+        ctx.globalCompositeOperation = 'destination-out';
+        ctx.fillStyle = '#000';
+        for (let i=0;i<pts.length;i++){
+          ctx.beginPath();
+          ctx.arc(pts[i].x, pts[i].y, stroke.size/2, 0, Math.PI*2);
+          ctx.fill();
+        }
+        ctx.restore();
+        return;
+      }
+
+      ctx.save();
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.strokeStyle = stroke.color;
+      ctx.lineWidth = stroke.size;
+      ctx.beginPath();
+
+      if (pts.length===1){
+        ctx.arc(pts[0].x, pts[0].y, stroke.size/2, 0, Math.PI*2);
+        ctx.fillStyle = stroke.color;
+        ctx.fill();
+        ctx.restore();
+        return;
+      }
+
+      ctx.moveTo(pts[0].x, pts[0].y);
+      for (let i=1;i<pts.length-1;i++){
+        const midX = (pts[i].x + pts[i+1].x)/2;
+        const midY = (pts[i].y + pts[i+1].y)/2;
+        ctx.quadraticCurveTo(pts[i].x, pts[i].y, midX, midY);
+      }
+      ctx.lineTo(pts[pts.length-1].x, pts[pts.length-1].y);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function redrawAll(){
+      drawCtx.clearRect(0,0,drawCanvas.width,drawCanvas.height);
+      for (const s of history){ renderStroke(drawCtx, s); }
+    }
+
+    function pushStroke(stroke){
+      history.push(stroke);
+      redoStack.length = 0;
+      renderStroke(drawCtx, stroke);
+    }
+
+    let bgMode = 'transparent';
+    function setBg(mode){
+      bgMode = mode;
+      bgNone.setAttribute('aria-pressed', String(mode==='transparent'));
+      bgLined.setAttribute('aria-pressed', String(mode==='lined'));
+      bgGrid.setAttribute('aria-pressed', String(mode==='grid'));
+    }
+    setBg('transparent');
+
+    colorEl.addEventListener('input', e => { penColor = e.target.value; });
+    sizeEl.addEventListener('input', e => { penSize = parseInt(e.target.value,10); sizeLbl.textContent = penSize; });
+    eraserBtn.addEventListener('click', () => { uiEraser = !uiEraser; eraserBtn.setAttribute('aria-pressed', String(uiEraser)); });
+    clearBtn.addEventListener('click', () => { history.length = 0; redoStack.length = 0; redrawAll(); });
+    saveBtn.addEventListener('click', () => {
+      const link = document.createElement('a');
+      link.download = 'finger-writing.png';
+      link.href = drawCanvas.toDataURL('image/png');
+      link.click();
+    });
+
+    mirrorBtn.addEventListener('click', () => {
+      mirror = !mirror;
+      mirrorBtn.textContent = mirror ? "🔄 Mirror: ON" : "🔄 Mirror: OFF";
+      mirrorBtn.setAttribute('aria-pressed', String(mirror));
+    });
+
+    bgNone.addEventListener('click', ()=>setBg('transparent'));
+    bgLined.addEventListener('click', ()=>setBg('lined'));
+    bgGrid.addEventListener('click', ()=>setBg('grid'));
+
+    undoBtn.addEventListener('click', () => {
+      if (!history.length) return;
+      redoStack.push(history.pop());
+      redrawAll();
+    });
+    redoBtn.addEventListener('click', () => {
+      if (!redoStack.length) return;
+      const s = redoStack.pop(); history.push(s); renderStroke(drawCtx, s);
+    });
+
+    closeOverlay.addEventListener('click', ()=> overlay.style.display='none');
+
+    // Mediapipe setup
+    const hands = new Hands({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+    });
+    hands.setOptions({
+      maxNumHands: 1,
+      modelComplexity: 1,
+      minDetectionConfidence: 0.7,
+      minTrackingConfidence: 0.7
+    });
+
+    let liveStroke = null;
+    function beginStroke(type, color, size, x, y){
+      liveStroke = { type, color, size, points: [] };
+      addPoint(x,y);
+    }
+    function endStroke(){
+      if (liveStroke && liveStroke.points.length){
+        pushStroke(liveStroke);
+      }
+      liveStroke = null;
+    }
+    const MIN_DIST = 1.5;
+    function addPoint(x,y){
+      if (!liveStroke) return;
+      const pts = liveStroke.points;
+      if (!pts.length || Math.hypot(x-pts[pts.length-1].x, y-pts[pts.length-1].y) >= MIN_DIST){
+        pts.push({x,y});
+        redrawAll();
+        renderStroke(drawCtx, liveStroke);
+      }
+    }
+
+    function onResults(results){
+        outCtx.clearRect(0,0,outCanvas.width,outCanvas.height);
+
+  // Draw camera with optional mirror
+  if (mirror){
+    outCtx.save();
+    outCtx.scale(-1,1);
+    outCtx.drawImage(results.image, -outCanvas.width, 0, outCanvas.width, outCanvas.height);
+    outCtx.restore();
+  } else {
+    outCtx.drawImage(results.image, 0, 0, outCanvas.width, outCanvas.height);
+  }
+
+  drawBackground();
+  outCtx.drawImage(drawCanvas, 0, 0);
+
+  if (results.multiHandLandmarks && results.multiHandLandmarks.length){
+    const lm = results.multiHandLandmarks[0];
+    const indexTip = lm[8];
+    const middleTip = lm[12];
+    const thumbTip = lm[4];
+    const pinkyTip = lm[20];
+
+    // Apply mirroring to hand coords as well
+    const xIndex = (mirror ? (1 - indexTip.x) : indexTip.x) * outCanvas.width;
+    const yIndex = indexTip.y * outCanvas.height;
+
+    const xThumb = (mirror ? (1 - thumbTip.x) : thumbTip.x) * outCanvas.width;
+    const yThumb = thumbTip.y * outCanvas.height;
+
+    fingertipX = xIndex; fingertipY = yIndex;
+
+    // EMA smoothing
+    if (smoothX==null){ smoothX = xIndex; smoothY = yIndex; }
+    else {
+      const alpha = 0.25;
+      smoothX = lerp(smoothX, xIndex, alpha);
+      smoothY = lerp(smoothY, yIndex, alpha);
+    }
+
+    // Gestures
+    const eraseGesture = (distance(thumbTip, indexTip) > 0.25);
+    const clearGesture = (distance(thumbTip, pinkyTip) > 0.35);
+    const twoFingerGesture = (distance(indexTip, middleTip) < 0.1);
+
+    eraseMode = uiEraser || eraseGesture;
+    const canWrite = !eraseMode && !clearGesture && !twoFingerGesture;
+
+    if (clearGesture){
+      endStroke();
+      history.length = 0; redoStack.length = 0; redrawAll();
+    }
+
+    // Writing
+    if (canWrite){
+      if (!penDown){
+        beginStroke('draw', penColor, penSize, smoothX, smoothY);
+        penDown = true;
+      } else {
+        addPoint(smoothX, smoothY);
+      }
+    } else {
+      if (penDown){ endStroke(); }
+      penDown = false;
+    }
+
+    // Erasing
+    if (eraseMode){
+      if (!liveStroke){ beginStroke('erase', '#000', Math.max(12, penSize*3), xThumb, yThumb); }
+      else if (liveStroke.type!=='erase'){ endStroke(); beginStroke('erase', '#000', Math.max(12, penSize*3), xThumb, yThumb); }
+      else { addPoint(xThumb, yThumb); }
+    } else if (liveStroke && liveStroke.type==='erase'){
+      endStroke();
+    }
+
+    // Cursor
+    cursor.style.display = 'block';
+    cursor.style.left = smoothX + 'px';
+    cursor.style.top  = smoothY + 'px';
+    cursor.style.width = cursor.style.height = (penSize+8) + 'px';
+
+  } else {
+    fingertipX=fingertipY=null;
+    cursor.style.display='none';
+    if (penDown){ endStroke(); penDown=false; }
+  }
+}
+
+    hands.onResults(onResults);
+
+    const camera = new Camera(video, {
+      onFrame: async () => { await hands.send({ image: video }); },
+      width: 1280,
+      height: 720
+    });
+    camera.start();
+
+    sizeLbl.textContent = penSize;
+    document.addEventListener('mousedown', e => e.preventDefault());
+  </script>
+</body>
+</html>
