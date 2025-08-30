@@ -1,11 +1,15 @@
-# Finger Writing — True Camera View with Mirror Toggle
+# 🖐️ Finger Writing — True Camera View
 
 **Short Description:**  
 A browser-based virtual finger writing app using Mediapipe Hands. Draw on your screen with your index finger, erase with your thumb, and clear the canvas with gestures. Includes a toggle for mirrored or true camera view.
 
 ---
 
-## Features
+![Finger Writing Screenshot](screenshot.png)
+
+---
+
+## ✨ Features
 - Draw using index finger in real-time.
 - Erase using thumb or eraser toggle.
 - Clear canvas with thumb + pinky gesture.
@@ -17,7 +21,7 @@ A browser-based virtual finger writing app using Mediapipe Hands. Draw on your s
 
 ---
 
-## How to Use
+## 🛠️ How to Use
 1. Open the app in a modern browser with camera access.
 2. Use your **index finger** to write.
 3. **Thumb** for erase, **thumb + pinky** to clear.
@@ -36,12 +40,14 @@ A browser-based virtual finger writing app using Mediapipe Hands. Draw on your s
 
 ---
 
-## Tech Stack
+## 📥 Download / Deployment
+Clone or download the repository and open index.html in a browser. No backend required — fully client-side
+
+---
+
+
+## ⚡ Technologies Used
 - HTML, CSS, JS (Vanilla)
 - [Mediapipe Hands](https://google.github.io/mediapipe/solutions/hands)
 - Canvas API for drawing
 
----
-
-## License
-MIT License
