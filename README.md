@@ -5,7 +5,7 @@ A browser-based virtual finger writing app using Mediapipe Hands. Draw on your s
 
 ---
 
-![Finger Writing Screenshot](screenshot.png)
+![Finger Writing Screenshot](https://github.com/shivesh122/AirWrite/blob/5a69a9af6bf319ed167679cf1718ed604cdbd5cf/Screenshot%202025-08-30%20165155.png)
 
 ---
 
